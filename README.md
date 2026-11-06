@@ -1,162 +1,195 @@
 # BloodLink
 
-Plataforma de banco de sangre: gestiona el inventario de unidades por tipo y componente,
-las citas y donaciones, y las solicitudes de unidades que hacen los hospitales, aplicando
-las reglas de compatibilidad ABO/Rh, vida util por componente y concurrencia segura al
-reservar unidades escasas.
+> Blood bank platform that manages donors, donations and hospital blood requests, enforcing ABO/Rh compatibility, component shelf life and race-free FEFO allocation of scarce units.
 
-## Que problema resuelve
+[![CI](https://github.com/edu-tech220/bloodlink/actions/workflows/ci.yml/badge.svg)](https://github.com/edu-tech220/bloodlink/actions/workflows/ci.yml)
+![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
+![ASP.NET Core](https://img.shields.io/badge/ASP.NET%20Core-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
+![EF Core](https://img.shields.io/badge/EF%20Core-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
+![SQL Server](https://img.shields.io/badge/SQL%20Server-2022-CC2927?style=flat-square&logo=microsoftsqlserver&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
 
-Un banco de sangre necesita responder preguntas con reglas de negocio reales, no un CRUD:
+## 📌 Overview
 
-- ¿Qué unidades de sangre son compatibles con un paciente de un tipo determinado?
-- ¿Cuándo caduca una unidad según su componente (sangre total, glóbulos rojos, plasma,
-  plaquetas, crioprecipitado)?
-- ¿Puede un donante donar hoy, o hace falta esperar por su edad o por una donación reciente?
-- Si dos hospitales piden el mismo tipo de sangre escaso al mismo tiempo, ¿cómo se evita
-  reservar dos veces la misma unidad?
-- ¿Qué unidades se asignan primero cuando hay varias disponibles? (la que caduca antes,
-  FEFO: *first-expired, first-out*)
+A blood bank has to answer questions driven by real business rules, not just CRUD:
 
-BloodLink modela estas reglas en el backend y las expone tanto a un panel administrativo
-(personal del banco de sangre) como a hospitales que solicitan unidades.
+- Which blood units are compatible with a patient of a given blood type?
+- When does a unit expire, given its component (whole blood, red cells, plasma, platelets, cryoprecipitate)?
+- Can a donor give blood today, or must they wait because of their age or a recent donation?
+- If two hospitals request the same scarce blood type at the same moment, how do we avoid reserving the same unit twice?
+- When several units are available, which ones go out first? (The one that expires soonest — **FEFO**, *first-expired, first-out*.)
 
-## Arquitectura
+BloodLink models these rules in the backend and exposes them both to an admin dashboard (blood bank staff) and to hospitals that request units.
 
-Arquitectura de microservicios con dos aplicaciones ASP.NET Core independientes que solo
-se comunican por HTTP, más un proyecto de pruebas:
+## ✨ Key features & business rules
 
+- **ABO/Rh compatibility** for red cells and plasma, derived from antigen properties (O− is the universal red-cell donor, AB+ the universal recipient).
+- **Shelf life per component**: whole blood 35 days, red cells 42 days, platelets 5 days, plasma and cryoprecipitate 365 days.
+- **Donor eligibility**: donors must be at least 18 years old and wait at least 56 days between donations.
+- **Donation workflow**: completing a donation appointment creates a whole-blood unit in `Quarantined` status, which staff then release to `Available` or discard.
+- **Blood unit state machine**: `Quarantined → Available → Reserved → Issued`, or `Discarded` / `Expired`.
+- **Hospital request state machine**: `Pending → PartiallyReserved → Reserved → Issued`, or `Cancelled` / `Rejected`. Cancelling a request returns its reserved units to `Available`; only `Reserved` requests can be issued.
+- **FEFO allocation** on request creation (and on demand), with partial reservations when stock is short.
+- **Low-stock summary**: inventory summary per blood type and component, flagging combinations with fewer than 5 available units.
+- **Role-based access**: `Admin` (blood bank staff) and `Hospital` users; hospital users only see and manage their own hospital's requests.
+- **Automatic expiry**: a background service marks expired units every 30 minutes.
+
+## 🏗️ Architecture
+
+Two independent ASP.NET Core applications that communicate only over HTTP, plus a test project:
+
+```mermaid
+flowchart LR
+    U[Browser] -->|HTML / cookie auth| W[BloodLink.Web<br/>Razor Pages]
+    W -->|REST + JWT Bearer<br/>typed HttpClient| A[BloodLink.Api<br/>ASP.NET Core Web API]
+    A -->|EF Core| D[(SQL Server)]
+    A -. BackgroundService .-> S[Expiration sweep]
 ```
-BloodLink.sln
-├── src/BloodLink.Api/      Microservicio backend (Web API) — toda la logica de negocio
-├── src/BloodLink.Web/      Frontend (Razor Pages) — solo HTML/CSS, sin SPA
-└── tests/BloodLink.Api.Tests/   Pruebas xUnit del backend (SQLite en memoria)
-```
 
-- **BloodLink.Api**: ASP.NET Core Web API + EF Core + SQL Server. Expone endpoints REST
-  protegidos con JWT (roles `Admin` y `Hospital`), aplica las reglas de compatibilidad
-  sanguínea, vida útil, elegibilidad de donantes y asignación FEFO con concurrencia
-  optimista. Es la única aplicación que toca la base de datos.
-- **BloodLink.Web**: ASP.NET Core Razor Pages. No tiene acceso a la base de datos ni
-  conoce EF Core: todo lo que muestra lo obtiene llamando a BloodLink.Api mediante un
-  `HttpClient` tipado registrado con `IHttpClientFactory`. La sesión del usuario es una
-  cookie de autenticación de ASP.NET Core que guarda el JWT emitido por la API como un
-  claim; un `DelegatingHandler` lo reenvía como `Authorization: Bearer` en cada llamada.
-- **BloodLink.Api.Tests**: pruebas xUnit que corren con `dotnet test` sin SQL Server,
-  usando SQLite en memoria a través de `WebApplicationFactory<Program>`.
+- **BloodLink.Api** — ASP.NET Core Web API + EF Core + SQL Server. Exposes JWT-protected REST endpoints (`Admin` and `Hospital` roles) and owns all business logic: blood compatibility, shelf life, donor eligibility and FEFO allocation with optimistic concurrency. It is the only application that touches the database.
+- **BloodLink.Web** — ASP.NET Core Razor Pages (server-rendered HTML/CSS, no SPA). It has no database access and no EF Core dependency: everything it shows comes from BloodLink.Api through a typed `HttpClient` registered with `IHttpClientFactory`. The user session is an ASP.NET Core authentication cookie that stores the JWT issued by the API as a claim; a `DelegatingHandler` forwards it as `Authorization: Bearer` on every call.
+- **BloodLink.Api.Tests** — xUnit tests that run with `dotnet test` without SQL Server, using in-memory SQLite through `WebApplicationFactory<Program>`.
 
-Ambos servicios se despliegan y escalan por separado (cada uno con su propio Dockerfile),
-y el frontend no comparte código ni modelos de EF Core con el backend: sus DTOs están
-duplicados a propósito, porque un cambio interno en uno no debe forzar un despliegue
-conjunto del otro.
+Each service has its own Dockerfile and can be deployed and scaled separately. The frontend shares no code or EF Core models with the backend: its DTOs are intentionally duplicated so that an internal change in one service never forces a joint deployment of the other.
 
-## Decisiones técnicas
+## 🧠 Technical decisions
 
-- **Compatibilidad ABO/Rh calculada, no una tabla fija.** `BloodCompatibilityService`
-  modela cada tipo de sangre como `(TieneAntígenoA, TieneAntígenoB, Rh+)` y deriva la
-  compatibilidad a partir de esas propiedades (para glóbulos rojos: los antígenos del
-  donante deben ser subconjunto de los del receptor; para plasma, la regla es la inversa
-  porque lo que viaja son anticuerpos). Es más auditable que una tabla de 64 casos y deja
-  claro *por qué* O− es donante universal y AB+ receptor universal.
-- **Concurrencia optimista sin `rowversion` de SQL Server.** Las pruebas corren contra
-  SQLite y el motor real contra SQL Server, así que en vez de una columna `rowversion`
-  (específica de SQL Server) se usa un `int Version` marcado como `IsConcurrencyToken()`
-  e incrementado manualmente en cada cambio de estado. EF Core incluye el valor original
-  en el `WHERE` de cada `UPDATE` en cualquier proveedor, así que el mismo código y las
-  mismas pruebas de conflicto funcionan igual en ambas bases de datos.
-- **Asignación FEFO con reintento ante conflictos.** `BloodAllocationService` busca las
-  unidades compatibles que caducan antes, las reserva y guarda; si otra solicitud ganó la
-  carrera por la misma unidad, `SaveChangesAsync` lanza `DbUpdateConcurrencyException`, el
-  servicio descarta el tracking y reintenta leyendo el inventario ya actualizado (hasta 5
-  veces) en lugar de fallar la petición del hospital.
-- **Migraciones de EF Core vs. SQLite de pruebas.** Las migraciones se generan con el
-  proveedor de SQL Server y graban tipos de columna propios de ese motor
-  (`nvarchar(max)`, `datetime2`); aplicarlas tal cual sobre SQLite falla. Por eso el
-  entorno de pruebas usa `Database.EnsureCreated()` (crea el esquema directamente desde el
-  modelo con los tipos de SQLite) mientras que el arranque real de la API sigue usando
-  `Database.Migrate()` contra SQL Server.
-- **PBKDF2 + JWT + rate limiting + CORS.** Las contraseñas se guardan con PBKDF2-SHA256
-  (100,000 iteraciones, sal aleatoria por usuario). El login emite un JWT con el rol y,
-  si aplica, el `hospitalId` del usuario. El endpoint de login tiene un limitador de tasa
-  (`AddFixedWindowLimiter`) para dificultar fuerza bruta, y CORS solo permite el origen
-  configurado para el frontend.
-- **`BackgroundService` para expirar inventario.** `ExpirationSweepService` recorre
-  periódicamente las unidades `Available`/`Quarantined` vencidas y las marca como
-  `Expired`, para que el panel de inventario y la asignación FEFO nunca ofrezcan una
-  unidad caducada. También existe un endpoint manual (`POST /api/inventory/sweep-expired`)
-  para forzar el barrido sin esperar al intervalo.
-- **Paginación real en los listados.** Donantes, citas, unidades de inventario y
-  solicitudes se devuelven paginados (`page`/`pageSize`) en vez de volcar toda la tabla.
+- **ABO/Rh compatibility is computed, not hard-coded.** `BloodCompatibilityService` models each blood type as `(HasAntigenA, HasAntigenB, RhPositive)` and derives compatibility from those properties. For red cells, the donor's antigens must be a subset of the recipient's; for plasma the rule is inverted, because what is transfused are antibodies. This is easier to audit than a 64-row lookup table and makes it explicit *why* O− is the universal donor and AB+ the universal recipient.
+- **Optimistic concurrency without SQL Server `rowversion`.** Tests run on SQLite while production runs on SQL Server, so instead of a provider-specific `rowversion` column, `BloodUnit` has an `int Version` configured with `IsConcurrencyToken()` and incremented on every state change. EF Core adds the original value to the `WHERE` clause of each `UPDATE` on any provider, so the same code and the same conflict tests work on both databases.
+- **FEFO allocation with retry on conflicts.** `BloodAllocationService` selects the compatible units that expire first, reserves them and saves. If another request won the race for the same unit, `SaveChangesAsync` throws `DbUpdateConcurrencyException`; the service clears the change tracker and retries against the refreshed inventory (up to 5 attempts) instead of failing the hospital's request.
+- **EF Core migrations vs. SQLite tests.** Migrations are generated with the SQL Server provider and contain engine-specific column types (`nvarchar(max)`, `datetime2`) that fail on SQLite. The test environment therefore uses `Database.EnsureCreated()` (schema built directly from the model with SQLite types), while the real API startup uses `Database.Migrate()` against SQL Server.
+- **PBKDF2 + JWT + rate limiting + CORS.** Passwords are hashed with PBKDF2-SHA256 (100,000 iterations, random per-user salt). Login issues a JWT containing the user's role and, when applicable, their `hospitalId`. The login endpoint is protected by a fixed-window rate limiter (5 attempts per 60 seconds by default) to slow down brute-force attacks, and CORS only allows the configured frontend origin.
+- **`BackgroundService` for inventory expiry.** `ExpirationSweepService` periodically finds `Available`/`Quarantined` units past their expiry date and marks them `Expired`, so neither the inventory dashboard nor FEFO allocation ever offers an expired unit. A manual endpoint (`POST /api/inventory/sweep-expired`) forces a sweep without waiting for the interval.
+- **Real pagination.** Donors, appointments, inventory units and requests are returned paginated (`page` / `pageSize`) instead of dumping whole tables.
 
-## Modelo de dominio (resumen)
+## 🗂️ Domain model
 
-| Entidad | Rol |
+| Entity | Role |
 |---|---|
-| `Donor` | Persona que dona; guarda tipo de sangre y última donación para calcular elegibilidad. |
-| `DonationAppointment` | Cita de donación; al completarse genera una `BloodUnit` en cuarentena. |
-| `BloodUnit` | Unidad física de un componente sanguíneo, con caducidad y máquina de estados (`Quarantined → Available → Reserved → Issued`, o `Discarded`/`Expired`). |
-| `Hospital` | Entidad que solicita unidades. |
-| `BloodRequest` | Pedido de un hospital; pasa por `Pending → PartiallyReserved → Reserved → Issued` (o `Cancelled`/`Rejected`). |
-| `RequestAllocation` | Enlace entre una solicitud y las unidades concretas que se le reservaron. |
-| `User` | Cuenta con rol `Admin` (personal del banco de sangre) o `Hospital` (ligada a un hospital). |
+| `Donor` | Person who donates; stores blood type and last donation date to compute eligibility. |
+| `DonationAppointment` | Donation appointment; when completed it produces a quarantined `BloodUnit`. |
+| `BloodUnit` | Physical unit of a blood component, with expiry date and a state machine (`Quarantined → Available → Reserved → Issued`, or `Discarded` / `Expired`). |
+| `Hospital` | Organization that requests units. |
+| `BloodRequest` | A hospital's order; moves through `Pending → PartiallyReserved → Reserved → Issued` (or `Cancelled` / `Rejected`). |
+| `RequestAllocation` | Link between a request and the specific units reserved for it. |
+| `User` | Account with role `Admin` (blood bank staff) or `Hospital` (linked to a hospital). |
 
-## Cómo correrlo
+## 🧰 Tech stack
 
-### Con Docker Compose (recomendado)
+| Layer | Technology |
+|---|---|
+| Backend | .NET 8, ASP.NET Core Web API, Swashbuckle (Swagger) |
+| Frontend | ASP.NET Core Razor Pages, cookie authentication, typed `HttpClient` |
+| Data | Entity Framework Core 8, SQL Server 2022 |
+| Security | JWT Bearer, PBKDF2-SHA256 password hashing, ASP.NET Core rate limiting, CORS |
+| Background work | `BackgroundService` (hosted service) |
+| Testing | xUnit, `WebApplicationFactory`, SQLite in-memory |
+| DevOps | Docker, Docker Compose, GitHub Actions |
 
-Levanta SQL Server, el backend y el frontend:
+## 🚀 Getting started
+
+### With Docker Compose (recommended)
+
+Starts SQL Server, the API and the web frontend:
 
 ```bash
 docker compose up --build
 ```
 
-- Frontend: http://localhost:5000
-- API + Swagger: http://localhost:5080/swagger
+| Service | URL |
+|---|---|
+| Web frontend | http://localhost:5000 |
+| API | http://localhost:5080 |
+| SQL Server | `localhost,1433` |
 
-Al arrancar, la API aplica las migraciones de EF Core contra SQL Server y siembra datos
-de prueba:
+On startup the API applies the EF Core migrations against SQL Server and seeds demo data:
 
-| Usuario | Contraseña | Rol |
+| Username | Password | Role |
 |---|---|---|
-| `admin` | `Admin123!` | Administrador del banco de sangre |
-| `hospital` | `Hospital123!` | Personal del hospital sembrado |
+| `admin` | `Admin123!` | Blood bank administrator |
+| `hospital` | `Hospital123!` | Staff of the seeded hospital |
 
-### En local sin Docker
+> The containers run with `ASPNETCORE_ENVIRONMENT=Production`, so Swagger UI is only enabled when running the API locally in Development (see below).
 
-Requiere un SQL Server accesible (por ejemplo, el del `docker-compose.yml` levantado solo
-con `docker compose up sqlserver`) y el SDK de .NET 8.
+### Locally without Docker
+
+Requires the .NET 8 SDK and a reachable SQL Server (for example, only the database from `docker-compose.yml`: `docker compose up sqlserver`).
 
 ```bash
-dotnet run --project src/BloodLink.Api
-dotnet run --project src/BloodLink.Web
+dotnet run --project src/BloodLink.Api   # http://localhost:5030  (Swagger: /swagger)
+dotnet run --project src/BloodLink.Web   # http://localhost:5247
 ```
 
-Ajusta `ConnectionStrings:Default` en `src/BloodLink.Api/appsettings.Development.json` si
-tu SQL Server no usa la cadena por defecto.
+Adjust `ConnectionStrings:Default` in `src/BloodLink.Api/appsettings.json` if your SQL Server does not use the default connection string. The web app reads the API address from `Api:BaseUrl` in `src/BloodLink.Web/appsettings.json`.
 
-## Cómo probarlo
+## 🧪 Running tests
 
 ```bash
 dotnet test
 ```
 
-Las pruebas no requieren SQL Server ni Docker: usan SQLite en memoria a través de
-`WebApplicationFactory<Program>` (o conexiones SQLite independientes para la prueba de
-concurrencia). Cubren:
+The suite contains **49 test cases** (30 `[Fact]` + 19 `[Theory]` data rows). Tests need neither SQL Server nor Docker: they use in-memory SQLite through `WebApplicationFactory<Program>` (or independent SQLite connections for the concurrency test). They cover:
 
-- Reglas de compatibilidad ABO/Rh para glóbulos rojos y plasma.
-- Cálculo de vida útil por componente.
-- Elegibilidad de donantes (edad mínima, intervalo entre donaciones).
-- Hashing de contraseñas (PBKDF2).
-- Autenticación y autorización por rol (login, 401, 403 entre `Admin` y `Hospital`).
-- Asignación FEFO, asignación parcial y reintento, incompatibilidad que deja una
-  solicitud `Pending`, entrega (`issue`) y cancelación de solicitudes.
-- Dos solicitudes reales compitiendo por la misma unidad escasa: exactamente una gana,
-  sin importar el orden de ejecución (prueba de concurrencia optimista con dos conexiones
-  SQLite independientes sobre una base en memoria compartida).
-- Flujo completo de cita de donación → unidad en cuarentena → liberación/descarte.
+- ABO/Rh compatibility rules for red cells and plasma.
+- Shelf-life calculation per component.
+- Donor eligibility (minimum age, interval between donations).
+- Password hashing (PBKDF2).
+- Authentication and role-based authorization (login, 401, 403 between `Admin` and `Hospital`).
+- FEFO allocation, partial allocation and retry, incompatibility leaving a request `Pending`, issuing and cancelling requests.
+- Two real requests competing for the same scarce unit: exactly one wins regardless of execution order (optimistic concurrency test with two independent SQLite connections over a shared in-memory database).
+- Full flow from donation appointment → quarantined unit → release/discard.
 
-## CI
+GitHub Actions (`.github/workflows/ci.yml`) restores, builds and runs `dotnet test` for the whole solution on every push and pull request to `main`.
 
-`.github/workflows/ci.yml` restaura, compila y corre `dotnet test` sobre toda la solución
-en cada push y pull request a `main`.
+## 🔌 API endpoints
+
+All endpoints except login require a JWT (`Authorization: Bearer <token>`).
+
+| Method | Route | Access | Description |
+|---|---|---|---|
+| POST | `/api/auth/login` | Anonymous (rate limited) | Authenticate and receive a JWT |
+| POST | `/api/auth/register` | Admin | Create a user account |
+| GET | `/api/donors` | Admin | List donors (paginated) |
+| GET | `/api/donors/{id}` | Admin | Get a donor |
+| POST | `/api/donors` | Admin | Register a donor |
+| GET | `/api/donors/{id}/eligibility` | Admin | Check whether a donor can donate |
+| GET | `/api/appointments` | Admin | List donation appointments (paginated) |
+| POST | `/api/appointments` | Admin | Schedule a donation appointment |
+| POST | `/api/appointments/{id}/complete` | Admin | Complete a donation and create a quarantined unit |
+| POST | `/api/appointments/{id}/cancel` | Admin | Cancel an appointment |
+| GET | `/api/hospitals` | Authenticated | List hospitals |
+| POST | `/api/hospitals` | Admin | Create a hospital |
+| GET | `/api/inventory/summary` | Authenticated | Available units per blood type and component, with low-stock flag |
+| GET | `/api/inventory/units` | Admin | List blood units (paginated, filter by status/blood type) |
+| POST | `/api/inventory/units/{id}/release` | Admin | Release a quarantined unit |
+| POST | `/api/inventory/units/{id}/discard` | Admin | Discard a unit |
+| POST | `/api/inventory/sweep-expired` | Admin | Force the expiry sweep |
+| GET | `/api/requests` | Authenticated | List requests (hospitals only see their own) |
+| GET | `/api/requests/{id}` | Authenticated | Get a request |
+| POST | `/api/requests` | Authenticated | Create a request and attempt FEFO allocation |
+| POST | `/api/requests/{id}/allocate` | Admin | Retry allocation for a request |
+| POST | `/api/requests/{id}/issue` | Admin | Issue a fully reserved request |
+| POST | `/api/requests/{id}/cancel` | Authenticated (own hospital or Admin) | Cancel a request and release its units |
+
+## 📁 Project structure
+
+```
+BloodLink.sln
+├── .github/workflows/ci.yml        # Build + test pipeline
+├── docker-compose.yml              # SQL Server + API + Web
+├── src/
+│   ├── BloodLink.Api/              # Web API — all business logic
+│   │   ├── Controllers/            # Auth, Donors, Appointments, Hospitals, Inventory, Requests
+│   │   ├── Data/                   # DbContext, seeder, EF Core migrations
+│   │   ├── Domain/                 # Entities and enums
+│   │   ├── Dtos/                   # Request/response contracts
+│   │   ├── Services/               # Compatibility, eligibility, allocation, shelf life, JWT, hashing, expiry sweep
+│   │   └── Dockerfile
+│   └── BloodLink.Web/              # Razor Pages frontend (no database access)
+│       ├── Pages/                  # Dashboard, Donors, Appointments, Hospitals, Requests, Login
+│       ├── Services/               # Typed API client, auth header handler
+│       ├── Models/                 # Duplicated DTOs
+│       └── Dockerfile
+└── tests/
+    └── BloodLink.Api.Tests/        # xUnit tests (SQLite in-memory)
+```
