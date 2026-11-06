@@ -1,0 +1,50 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: bloodlink-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Your_password123"
+    ports:
+      - "1433:1433"
+    volumes:
+      - bloodlink-sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  bloodlink-api:
+    build:
+      context: .
+      dockerfile: src/BloodLink.Api/Dockerfile
+    container_name: bloodlink-api
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=BloodLink;User Id=sa;Password=Your_password123;TrustServerCertificate=True;"
+      Jwt__Key: "CHANGE_THIS_DEV_ONLY_SECRET_KEY_32BYTES_MIN"
+      Jwt__Issuer: "BloodLink.Api"
+      Jwt__Audience: "BloodLink.Clients"
+      Cors__AllowedOrigin: "http://localhost:5000"
+    ports:
+      - "5080:8080"
+
+  bloodlink-web:
+    build:
+      context: .
+      dockerfile: src/BloodLink.Web/Dockerfile
+    container_name: bloodlink-web
+    depends_on:
+      - bloodlink-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      Api__BaseUrl: "http://bloodlink-api:8080"
+    ports:
+      - "5000:8080"
+
+volumes:
+  bloodlink-sqlserver-data:

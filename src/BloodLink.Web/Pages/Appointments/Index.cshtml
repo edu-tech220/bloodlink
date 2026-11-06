@@ -1,0 +1,64 @@
+@page
+@model BloodLink.Web.Pages.Appointments.IndexModel
+@{
+    ViewData["Title"] = "Citas de donacion";
+}
+
+<h1>Citas de donacion</h1>
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
+}
+@if (Model.SuccessMessage is not null)
+{
+    <div class="alert alert-success">@Model.SuccessMessage</div>
+}
+
+<form method="post" asp-page-handler="Schedule" class="row g-2 align-items-end mb-4">
+    <div class="col-auto">
+        <label asp-for="Input.DonorId" class="form-label">Id del donante</label>
+        <input asp-for="Input.DonorId" class="form-control" />
+    </div>
+    <div class="col-auto">
+        <label asp-for="Input.ScheduledAt" class="form-label">Fecha y hora</label>
+        <input asp-for="Input.ScheduledAt" type="datetime-local" class="form-control" />
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary">Agendar</button>
+    </div>
+</form>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Donante</th>
+            <th>Fecha</th>
+            <th>Estado</th>
+            <th>Unidad generada</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var appointment in Model.Appointments)
+        {
+            <tr>
+                <td>@appointment.DonorName (#@appointment.DonorId)</td>
+                <td>@appointment.ScheduledAt</td>
+                <td>@appointment.Status</td>
+                <td>@(appointment.ResultingBloodUnitId?.ToString() ?? "-")</td>
+                <td>
+                    @if (appointment.Status == BloodLink.Web.Models.AppointmentStatus.Scheduled)
+                    {
+                        <form method="post" asp-page-handler="Complete" asp-route-id="@appointment.Id" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-success">Completar</button>
+                        </form>
+                        <form method="post" asp-page-handler="Cancel" asp-route-id="@appointment.Id" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Cancelar</button>
+                        </form>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>

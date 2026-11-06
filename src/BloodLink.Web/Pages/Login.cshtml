@@ -1,0 +1,42 @@
+@page
+@model BloodLink.Web.Pages.LoginModel
+@{
+    ViewData["Title"] = "Iniciar sesion";
+}
+
+<div class="row justify-content-center">
+    <div class="col-md-5">
+        <h1 class="mb-4">BloodLink</h1>
+        <p class="text-muted">Plataforma de banco de sangre: inventario, donaciones y solicitudes hospitalarias.</p>
+
+        @if (Model.ErrorMessage is not null)
+        {
+            <div class="alert alert-danger">@Model.ErrorMessage</div>
+        }
+
+        <form method="post">
+            <div class="mb-3">
+                <label asp-for="Input.Username" class="form-label">Usuario</label>
+                <input asp-for="Input.Username" class="form-control" autocomplete="username" />
+                <span asp-validation-for="Input.Username" class="text-danger"></span>
+            </div>
+            <div class="mb-3">
+                <label asp-for="Input.Password" class="form-label">Contrasena</label>
+                <input asp-for="Input.Password" type="password" class="form-control" autocomplete="current-password" />
+                <span asp-validation-for="Input.Password" class="text-danger"></span>
+            </div>
+            <button type="submit" class="btn btn-primary">Entrar</button>
+        </form>
+
+        <hr />
+        <p class="text-muted small">
+            Usuarios de prueba (creados por el seed de datos):<br />
+            Administrador del banco de sangre: <code>admin / Admin123!</code><br />
+            Personal de hospital: <code>hospital / Hospital123!</code>
+        </p>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

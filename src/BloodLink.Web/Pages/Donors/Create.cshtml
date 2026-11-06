@@ -1,0 +1,33 @@
+@page
+@model BloodLink.Web.Pages.Donors.CreateModel
+@{
+    ViewData["Title"] = "Registrar donante";
+}
+
+<h1>Registrar donante</h1>
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
+}
+
+<form method="post" class="col-md-6">
+    <div class="mb-3">
+        <label asp-for="Input.FullName" class="form-label">Nombre completo</label>
+        <input asp-for="Input.FullName" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.BloodType" class="form-label">Tipo de sangre</label>
+        <select asp-for="Input.BloodType" class="form-select" asp-items="Html.GetEnumSelectList<BloodLink.Web.Models.BloodType>()"></select>
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.DateOfBirth" class="form-label">Fecha de nacimiento</label>
+        <input asp-for="Input.DateOfBirth" type="date" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.Phone" class="form-label">Telefono</label>
+        <input asp-for="Input.Phone" class="form-control" />
+    </div>
+    <button type="submit" class="btn btn-primary">Guardar</button>
+    <a href="/Donors/Index" class="btn btn-link">Cancelar</a>
+</form>

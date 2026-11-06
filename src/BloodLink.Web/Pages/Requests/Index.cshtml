@@ -1,0 +1,108 @@
+@page
+@model BloodLink.Web.Pages.Requests.IndexModel
+@{
+    ViewData["Title"] = "Solicitudes de sangre";
+}
+
+<h1>Solicitudes de sangre</h1>
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
+}
+@if (Model.SuccessMessage is not null)
+{
+    <div class="alert alert-success">@Model.SuccessMessage</div>
+}
+
+<h2>Nueva solicitud</h2>
+<form method="post" asp-page-handler="Create" class="row g-2 align-items-end mb-4">
+    @if (Model.IsAdmin)
+    {
+        <div class="col-auto">
+            <label asp-for="Input.HospitalId" class="form-label">Hospital</label>
+            <select asp-for="Input.HospitalId" class="form-select">
+                @foreach (var hospital in Model.Hospitals)
+                {
+                    <option value="@hospital.Id">@hospital.Name</option>
+                }
+            </select>
+        </div>
+    }
+    else
+    {
+        <input type="hidden" asp-for="Input.HospitalId" />
+    }
+    <div class="col-auto">
+        <label asp-for="Input.BloodType" class="form-label">Tipo</label>
+        <select asp-for="Input.BloodType" class="form-select" asp-items="Html.GetEnumSelectList<BloodLink.Web.Models.BloodType>()"></select>
+    </div>
+    <div class="col-auto">
+        <label asp-for="Input.Component" class="form-label">Componente</label>
+        <select asp-for="Input.Component" class="form-select" asp-items="Html.GetEnumSelectList<BloodLink.Web.Models.BloodComponent>()"></select>
+    </div>
+    <div class="col-auto">
+        <label asp-for="Input.QuantityUnits" class="form-label">Cantidad</label>
+        <input asp-for="Input.QuantityUnits" type="number" min="1" max="50" class="form-control" />
+    </div>
+    <div class="col-auto">
+        <label asp-for="Input.Priority" class="form-label">Prioridad</label>
+        <select asp-for="Input.Priority" class="form-select" asp-items="Html.GetEnumSelectList<BloodLink.Web.Models.RequestPriority>()"></select>
+    </div>
+    <div class="col-auto">
+        <label asp-for="Input.Notes" class="form-label">Notas</label>
+        <input asp-for="Input.Notes" class="form-control" />
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary">Solicitar</button>
+    </div>
+</form>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Id</th>
+            <th>Hospital</th>
+            <th>Tipo / Componente</th>
+            <th>Cantidad</th>
+            <th>Asignadas</th>
+            <th>Prioridad</th>
+            <th>Estado</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var request in Model.Requests)
+        {
+            <tr>
+                <td>@request.Id</td>
+                <td>@request.HospitalName</td>
+                <td>@request.BloodType / @request.Component</td>
+                <td>@request.QuantityUnits</td>
+                <td>@request.UnitsAllocated</td>
+                <td>@request.Priority</td>
+                <td>@request.Status</td>
+                <td>
+                    @if (Model.IsAdmin && request.Status is BloodLink.Web.Models.RequestStatus.Pending or BloodLink.Web.Models.RequestStatus.PartiallyReserved)
+                    {
+                        <form method="post" asp-page-handler="Allocate" asp-route-id="@request.Id" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">Reintentar asignacion</button>
+                        </form>
+                    }
+                    @if (Model.IsAdmin && request.Status == BloodLink.Web.Models.RequestStatus.Reserved)
+                    {
+                        <form method="post" asp-page-handler="Issue" asp-route-id="@request.Id" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-success">Entregar</button>
+                        </form>
+                    }
+                    @if (request.Status is BloodLink.Web.Models.RequestStatus.Pending or BloodLink.Web.Models.RequestStatus.PartiallyReserved or BloodLink.Web.Models.RequestStatus.Reserved)
+                    {
+                        <form method="post" asp-page-handler="Cancel" asp-route-id="@request.Id" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Cancelar</button>
+                        </form>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>

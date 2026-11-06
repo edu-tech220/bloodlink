@@ -1,0 +1,57 @@
+@page
+@model BloodLink.Web.Pages.Donors.IndexModel
+@{
+    ViewData["Title"] = "Donantes";
+}
+
+<h1>Donantes</h1>
+<a href="/Donors/Create" class="btn btn-primary mb-3">Registrar donante</a>
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
+}
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Nombre</th>
+            <th>Tipo de sangre</th>
+            <th>Fecha de nacimiento</th>
+            <th>Telefono</th>
+            <th>Ultima donacion</th>
+            <th>Elegibilidad hoy</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var donor in Model.Donors)
+        {
+            var eligible = Model.Eligibility.GetValueOrDefault(donor.Id);
+            <tr>
+                <td>@donor.FullName</td>
+                <td>@donor.BloodType</td>
+                <td>@donor.DateOfBirth</td>
+                <td>@donor.Phone</td>
+                <td>@(donor.LastDonationDate?.ToString() ?? "Nunca")</td>
+                <td>
+                    @if (eligible is null)
+                    {
+                        <span>-</span>
+                    }
+                    else if (eligible.IsEligible)
+                    {
+                        <span class="badge bg-success">Elegible</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-warning text-dark" title="@eligible.Reason">No elegible</span>
+                    }
+                </td>
+                <td>
+                    <a href="/Appointments?donorId=@donor.Id" class="btn btn-sm btn-outline-secondary">Agendar cita</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>

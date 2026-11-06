@@ -1,0 +1,35 @@
+@page
+@model BloodLink.Web.Pages.DashboardModel
+@{
+    ViewData["Title"] = "Panel de inventario";
+}
+
+<h1>Panel de inventario</h1>
+<p class="text-muted">Unidades disponibles por tipo de sangre y componente. Las filas en rojo estan por debajo del umbral minimo de abastecimiento.</p>
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
+}
+
+<table class="table table-bordered table-sm">
+    <thead>
+        <tr>
+            <th>Tipo de sangre</th>
+            <th>Componente</th>
+            <th>Unidades disponibles</th>
+            <th>Estado</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model.Summary)
+        {
+            <tr class="@(item.LowStock ? "table-danger" : "")">
+                <td>@item.BloodType</td>
+                <td>@item.Component</td>
+                <td>@item.AvailableUnits</td>
+                <td>@(item.LowStock ? "Stock bajo" : "OK")</td>
+            </tr>
+        }
+    </tbody>
+</table>

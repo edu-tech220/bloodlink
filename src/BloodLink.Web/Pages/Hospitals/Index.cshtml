@@ -1,0 +1,49 @@
+@page
+@model BloodLink.Web.Pages.Hospitals.IndexModel
+@{
+    ViewData["Title"] = "Hospitales";
+}
+
+<h1>Hospitales</h1>
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
+}
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Nombre</th>
+            <th>Correo de contacto</th>
+            <th>Direccion</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var hospital in Model.Hospitals)
+        {
+            <tr>
+                <td>@hospital.Name</td>
+                <td>@hospital.ContactEmail</td>
+                <td>@hospital.Address</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<h2>Registrar hospital</h2>
+<form method="post" class="col-md-6">
+    <div class="mb-3">
+        <label asp-for="Input.Name" class="form-label">Nombre</label>
+        <input asp-for="Input.Name" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.ContactEmail" class="form-label">Correo de contacto</label>
+        <input asp-for="Input.ContactEmail" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.Address" class="form-label">Direccion</label>
+        <input asp-for="Input.Address" class="form-control" />
+    </div>
+    <button type="submit" class="btn btn-primary">Guardar</button>
+</form>
